@@ -11,9 +11,9 @@ module ActiveRecord
 
     # @param [Array<String,Symbol>] association_names - Eager loaded association names. e.g. `[:users, :likes]`
     # @return [Array<ActiveRecord::Base>]
-    def precount(*args, **kwargs)
-      unscoped_precount(*args) if args.present?
-      scoped_precount(kwargs) if kwargs.present?
+    def precount(*unscoped_associations, **scoped_associations)
+      unscoped_precount(*unscoped_associations) if unscoped_associations.present?
+      scoped_precount(scoped_associations) if scoped_associations.present?
     end
 
     def unscoped_precount(*association_names)
