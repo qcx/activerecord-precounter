@@ -11,53 +11,13 @@ module ActiveRecord
 
     # @param [Array<String,Symbol>] association_names - Eager loaded association names. e.g. `[:users, :likes]`
     # @return [Array<ActiveRecord::Base>]
+
     def precount(*unscoped_associations, **scoped_associations)
-      unscoped_precount(*unscoped_associations) if unscoped_associations.present?
-      scoped_precount(scoped_associations) if scoped_associations.present?
-    end
-
-    def unscoped_precount(*association_names)
       records = @relation.to_a
       return [] if records.empty?
 
-      association_names.each do |association_name|
-        association_name = association_name.to_s
-        reflection = @relation.klass.reflections.fetch(association_name)
-
-        if reflection.inverse_of.nil?
-          raise MissingInverseOf.new(
-            "`#{reflection.klass}` does not have inverse of `#{@relation.klass}##{reflection.name}`. "\
-            "Probably missing to call `#{reflection.klass}.belongs_to #{@relation.name.underscore.to_sym.inspect}`?"
-          )
-        end
-
-        primary_key = reflection.inverse_of.association_primary_key.to_sym
-
-        count_by_id = if reflection.has_scope?
-                        # ActiveRecord 5.0 unscopes #scope_for argument, so adding #where outside that:
-                        # https://github.com/rails/rails/blob/v5.0.7/activerecord/lib/active_record/reflection.rb#L314-L316
-                        reflection.scope_for(reflection.klass.unscoped).where(reflection.inverse_of.name => records.map(&primary_key)).group(
-                          reflection.inverse_of.foreign_key
-                        ).count
-                      else
-                        reflection.klass.where(reflection.inverse_of.name => records.map(&primary_key)).group(
-                          reflection.inverse_of.foreign_key
-                        ).count
-                      end
-
-        writer = define_count_accessor(records.first, association_name)
-        records.each do |record|
-          record.public_send(writer, count_by_id.fetch(record.public_send(primary_key), 0))
-        end
-      end
-      records
-    end
-
-    def scoped_precount(**args)
-      records = @relation.to_a
-      return [] if records.empty?
-
-      args.keys.each do |association_name|
+      associations = unscoped_associations + scoped_associations.keys
+      associations.each do |association_name|
         association_name = association_name.to_s
         reflection = @relation.klass.reflections.fetch(association_name)
         
@@ -69,17 +29,18 @@ module ActiveRecord
         end
 
         primary_key = reflection.inverse_of.association_primary_key.to_sym
-        
+        scope = scoped_associations[association_name.to_sym]
+        scope = reflection.klass.all unless scope.present?
         count_by_id = if reflection.has_scope?
                         # ActiveRecord 5.0 unscopes #scope_for argument, so adding #where outside that:
                         # https://github.com/rails/rails/blob/v5.0.7/activerecord/lib/active_record/reflection.rb#L314-L316
                         reflection.scope_for(reflection.klass.unscoped).where(reflection.inverse_of.name => records.map(&primary_key)).group(
                           reflection.inverse_of.foreign_key
-                        ).merge(args[association_name.to_sym]).count
+                        ).merge(scope).count
                       else
                         reflection.klass.where(reflection.inverse_of.name => records.map(&primary_key)).group(
                           reflection.inverse_of.foreign_key
-                        ).merge(args[association_name.to_sym]).count
+                        ).merge(scope).count
                       end
 
         writer = define_count_accessor(records.first, association_name)
