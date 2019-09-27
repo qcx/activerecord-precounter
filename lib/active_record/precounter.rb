@@ -11,14 +11,16 @@ module ActiveRecord
 
     # @param [Array<String,Symbol>] association_names - Eager loaded association names. e.g. `[:users, :likes]`
     # @return [Array<ActiveRecord::Base>]
-    def precount(*association_names)
+
+    def precount(*unscoped_associations, **scoped_associations)
       records = @relation.to_a
       return [] if records.empty?
 
-      association_names.each do |association_name|
+      associations = unscoped_associations + scoped_associations.keys
+      associations.each do |association_name|
         association_name = association_name.to_s
         reflection = @relation.klass.reflections.fetch(association_name)
-
+        
         if reflection.inverse_of.nil?
           raise MissingInverseOf.new(
             "`#{reflection.klass}` does not have inverse of `#{@relation.klass}##{reflection.name}`. "\
@@ -27,17 +29,18 @@ module ActiveRecord
         end
 
         primary_key = reflection.inverse_of.association_primary_key.to_sym
-
+        scope = scoped_associations[association_name.to_sym]
+        scope = reflection.klass.all unless scope.present?
         count_by_id = if reflection.has_scope?
                         # ActiveRecord 5.0 unscopes #scope_for argument, so adding #where outside that:
                         # https://github.com/rails/rails/blob/v5.0.7/activerecord/lib/active_record/reflection.rb#L314-L316
                         reflection.scope_for(reflection.klass.unscoped).where(reflection.inverse_of.name => records.map(&primary_key)).group(
                           reflection.inverse_of.foreign_key
-                        ).count
+                        ).merge(scope).count
                       else
                         reflection.klass.where(reflection.inverse_of.name => records.map(&primary_key)).group(
                           reflection.inverse_of.foreign_key
-                        ).count
+                        ).merge(scope).count
                       end
 
         writer = define_count_accessor(records.first, association_name)
